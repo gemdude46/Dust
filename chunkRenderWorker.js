@@ -4,7 +4,7 @@ var BLOCKSIZE;
 
 var blocks, lighting, heights;
 
-var shdata, shdataview;
+var buffer, bufferview;
 
 var day;
 
@@ -15,8 +15,8 @@ var cpos;
 self.onmessage = function(msg) {
 	blocks = msg.data.blocks;
 	lighting = msg.data.lighting;
-	shdata = msg.data.shdata;
-	shdataview = new Uint8Array(shdata);
+	buffer = msg.data.buffer;
+	bufferview = new Uint8Array(buffer);
 	day = msg.data.day;
 	BLOCKSIZE = msg.data.bs;
 	
@@ -28,32 +28,32 @@ self.onmessage = function(msg) {
 };
 
 function spixcol(x, y, clr) {
-	var pixs = 4*(x + y * 128 * BLOCKSIZE);
-	shdataview[pixs]   = clr[0];
-	shdataview[pixs+1] = clr[1];
-	shdataview[pixs+2] = clr[2];
-	shdataview[pixs+3] = 255;
+	const pixs = 4*(x + y * 128 * BLOCKSIZE);
+	bufferview[pixs]   = clr[0];
+	bufferview[pixs+1] = clr[1];
+	bufferview[pixs+2] = clr[2];
+	bufferview[pixs+3] = 255;
 };
 
 function sblkcol(x, y, clr) {
-	for (var i = 0; i < BLOCKSIZE; i++)
-		for (var j = 0; j < BLOCKSIZE; j++)
+	for (let i = 0; i < BLOCKSIZE; i++)
+		for (let j = 0; j < BLOCKSIZE; j++)
 			spixcol(x * BLOCKSIZE + i, y * BLOCKSIZE + j, clr);
 }
 
 function render() {
-	var rng = new alea(seed);
-	for (var i = 0; i < 128; i++) {
-		for (var j = 0; j < 128; j++) {
-			var rn = rng.int32();
-			var block = self.DustDataBlocks[blocks[j+i*128]];
-			var depth = j + cpos.y * 128;
-			var light = lighting[j+i*128] + (day ? Math.max(Math.min(1 - depth/256, 1), 0) : 0);
+	const rng = new alea(seed);
+	for (let i = 0; i < 128; i++) {
+		for (let j = 0; j < 128; j++) {
+			const rn = rng.int32();
+			const block = self.DustDataBlocks[blocks[j+i*128]];
+			const depth = j + cpos.y * 128;
+			const light = lighting[j+i*128] + (day ? Math.max(Math.min(1 - depth/256, 1), 0) : 0);
 
 			if (block.render === 'none') {
 				sblkcol(i, j, [0,255,255]);
 			} else if (block.render === 'normal' || block.render === 'fluid') {
-				var clr = block.color.slice();
+				let clr = block.color.slice();
 				if (block.variation) {
 					clr[0] += rn % block.variation;
 					clr[1] += rn % block.variation;
@@ -71,7 +71,7 @@ function render() {
 }
 
 function lm(mod) {
-	var constxhr = new XMLHttpRequest();
+	const constxhr = new XMLHttpRequest();
 	constxhr.open('GET', mod, false);
 	constxhr.send(null);
 
@@ -82,5 +82,5 @@ function lm(mod) {
 	}
 }
 
-lm('libalea.js');
+lm('lib/alea.js');
 lm('constants.js');

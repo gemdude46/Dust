@@ -17,32 +17,38 @@ self.DustServerCommands = {
 	}
 };
 
-self.DustServer = function(properties) {
+class DustServer{
 	
-	properties = properties || {};
+	constructor(properties) {
+		properties = properties || {};
 	
-	this.name = properties.name || "Dust Server";
+		this.name = properties.name || "Dust Server";
+
+		this.worldGenerator = DustServerGenerators[properties.generator];
+
+		this.gravity = properties.gravity || 275;
+
+		this.players = [];
+
+		this.entities = [];
+
+		this.chunks = {};
+
+		this.seed = properties.seed || Math.random() + ';' + Math.random();
+
+		this.perlin1 = new Perlin(this.seed);
+		this.perlin2 = new Perlin(this.seed + 'u');
+		this.perlin3 = new Perlin(this.seed + 'r');
+		this.perlin4 = new Perlin(this.seed + 'a');
+		this.perlin5 = new Perlin(this.seed + 'd');
 	
-	this.worldGenerator = DustServerGenerators[properties.generator];
+		this.cmdVars = {};
+		
+		setInterval(() => this.tick(), 10);
+	}
 	
-	this.gravity = properties.gravity || 275;
-	
-	this.players = [];
-	
-	this.entities = [];
-	
-	this.chunks = {};
-	
-	this.seed = properties.seed || Math.random() + ';' + Math.random();
-	
-	this.perlin1 = new Perlin(this.seed);
-	this.perlin2 = new Perlin(this.seed + 'u');
-	this.perlin3 = new Perlin(this.seed + 'r');
-	this.perlin4 = new Perlin(this.seed + 'a');
-	this.perlin5 = new Perlin(this.seed + 'd');
-	
-	this.addConnection = function(conn) {
-		var svr = this;
+	addConnection(conn) {
+		const svr = this;
 		conn.onmsg = function(msg) {
 			if (msg.cmd !== 'haveData') {
 				this.disconnect('Unable to perform handshake: You have no hands.');
@@ -61,61 +67,58 @@ self.DustServer = function(properties) {
 		}
 		
 		conn.send({cmd: 'handshake', serverName: this.name});
-	};
+	}
 
-	this.getPlayer = function(name) {
-		for (var plr of this.players) {
+	getPlayer(name) {
+		for (const plr of this.players) {
 			if (plr.username === name) {
 				return plr;
 			}
 		}
 
 		return null;
-	};
+	}
 	
-	this.getChunk = function(x, y) {
-		var key = x + ',' + y;
+	getChunk(x, y) {
+		const key = x + ',' + y;
 		return this.chunks[key] || (this.chunks[key] = new DustServerChunk(this, x, y, this.worldGenerator));
-	};
+	}
 	
-	this.getBlock = function(x, y) {
+	getBlock(x, y) {
 		return this.getChunk(Math.floor(x / 128), Math.floor(y / 128)).blocks[(y & 127) + 128 * (x & 127)];
-	};
+	}
 	
-	this.setBlock = function(x, y, blk) {
-		var chunk = this.getChunk(Math.floor(x / 128), Math.floor(y / 128));
-		var blocki = (y & 127) + 128 * (x & 127);
+	setBlock(x, y, blk) {
+		const chunk = this.getChunk(Math.floor(x / 128), Math.floor(y / 128));
+		const blocki = (y & 127) + 128 * (x & 127);
 		chunk.blocks[blocki] = blk;
-		this.players.forEach(function(plr) {
+		for (const plr of this.players) {
 			if (plr.online) plr.conn.send({cmd: 'setBlock', chx: chunk.x, chy: chunk.y, ind: blocki, blk: blk});
-		});
-	};
+		}
+	}
 	
-	this.tick = function() {
-		for (var i = this.entities.length - 1; i > -1; i--) {
+	tick() {
+		for (let i = this.entities.length - 1; i > -1; i--) {
 			if (this.entities[i].tick(0.01)) {
 				this.entities.splice(i, 1);
 			}
 		}
-	};
+	}
 
-	var me = this;
-
-	this.cmdVars = {};
-	this.runCommand = function(command) {
+	runCommand(command) {
 		const commands = {
 			'/': {
 				args: 1,
-				func: function(args) {
+				func: args => {
 					return args[0].run();
 				}
 			},
 			'/setblock': {
 				args: 3,
-				func: function(args) {
-					var x = args[0].run();
-					var y = args[1].run();
-					var b = args[2].run();
+				func: args => {
+					let x = args[0].run();
+					let y = args[1].run();
+					let b = args[2].run();
 
 					if (isNaN(+x) || (+x) % 1 !== 0) {
 						throw(x + " is not a valid integer.");
@@ -134,17 +137,17 @@ self.DustServer = function(properties) {
 					x = +x;
 					y = +y;
 
-					me.setBlock(x, y, b.id);
+					this.setBlock(x, y, b.id);
 
 					return "1 block updated.";
 				}
 			},
 			'/tpc': {
 				args: 3,
-				func: function(args) {
-					var p = args[0].run().split(',');
-					var x = args[1].run();
-					var y = args[2].run();
+				func: args => {
+					let p = args[0].run().split(',');
+					let x = args[1].run();
+					let y = args[2].run();
 
 					if (isNaN(+x)) {
 						throw(x + " is not a valid number.");
@@ -158,14 +161,14 @@ self.DustServer = function(properties) {
 					y = +y;
 
 					p = p.map(x => {
-						var plr = me.getPlayer(x);
+						const plr = me.getPlayer(x);
 						if (!plr) {
 							throw(x + " is not a valid player.");
 						}
 						return plr;
 					});
 
-					for (var plr of p) {
+					for (const plr of p) {
 						plr.x = x;
 						plr.y = y;
 					}
@@ -173,18 +176,22 @@ self.DustServer = function(properties) {
 					return p.length + " player(s) moved."
 				}
 			}
-		};
+		}
 
-		function next() {
+		let next;
+		next = () => {
+			
+			const me = this;
+
 			if (command.length === 0) {
 				throw("Not enough arguments passed to command.");
 			}
 
-			var cmd = command.splice(0, 1)[0];
+			const cmd = command.splice(0, 1)[0];
 
 			if (cmd.startsWith('/')) {
 				if (cmd in commands) {
-					var args = [];
+					let args = [];
 					for (var i = 0; i < commands[cmd].args; i++) {
 						args.push(next());
 					}
@@ -203,7 +210,7 @@ self.DustServer = function(properties) {
 		}
 		
 		try {
-			var root = next();
+			const root = next();
 			if (command.length) {
 				throw("Too many arguments passed to command");
 			}
@@ -212,82 +219,79 @@ self.DustServer = function(properties) {
 		} catch (e) {
 			return '[EE] ' + e;
 		}
-	};
-	
-	setInterval(function() { me.tick(); }, 10);
-};
+	}	
+}
 
-self.DustServerChunk = function(svr, x, y, genf) {
+class DustServerChunk {
+	constructor(svr, x, y, genf) {
+		this.svr = svr;
 	
-	this.svr = svr;
+		this.x = x;
+		this.y = y;
 	
-	this.x = x;
-	this.y = y;
+		this.blocks = Array(16384).fill(DustDataBlocks.ERROR.id);
 	
-	this.blocks = Array(16384).fill(DustDataBlocks.ERROR.id);
-	
-	if (genf) genf(this);
-	
-};
+		if (genf) genf(this);
+	}
+}
 
-self.DustServerConnection = function() {
+class DustServerConnection {
+	constructor() {
+		this.toBeDeleted = false;
+		this.player = null;
+	}
 	
-	this.toBeDeleted = false;
-	
-	this.player = null;
-	
-	this.disconnect = function(rs) {
+	disconnect(rs) {
 		this.send({cmd: 'disconnect', reason: rs});
 		this.toBeDeleted = true;
 		this.player.online = false;
-	};
-};
+	}
+}
 
-self.DustServerPlayer = function(svr, name) {
-	this.username = name;
-	this.online = false;
-	this.conn = null;
-	this.svr = svr;
-	
-	this.connect = function(conn) {
+class DustServerPlayer {
+	constructor(svr, name) {
+		this.username = name;
+		this.online = false;
+		this.conn = null;
+		this.svr = svr;
+		this.keys = {
+			left: false,
+			right: false,
+			jump: false,
+			run: false
+		};
+
+		this.x = 0;
+		this.y = -30;
+		this.dx = 0;
+		this.dy = 0;
+		this.hcolwidth = 3;
+		this.hcolheight = 7;
+
+		this.jumppwr = 100;
+	}
+
+	connect(conn) {
 		this.online = true;
 		this.conn = conn;
-	};
-	
-	this.keys = {
-		left: false,
-		right: false,
-		jump: false,
-		run: false
-	};
-	
-	this.x = 0;
-	this.y = -30;
-	this.dx = 0;
-	this.dy = 0;
-	this.hcolwidth = 3;
-	this.hcolheight = 7;
-	
-	this.jumppwr = 100;
-	
-	this.tick = function(dtime) {
-		//DustServerPhysicsTickEntity(this, 0.01);
+	}
 		
-		var dxofs = (this.keys.left * -30 + this.keys.right * 30) * (1 + this.keys.run);
+	tick(dtime) {
+		const dxofs = (this.keys.left * -30 + this.keys.right * 30) * (1 + this.keys.run);
 		
-		var ix = Math.floor(this.x);
-		var iy = Math.floor(this.y);
+		const ix = Math.floor(this.x);
+		const iy = Math.floor(this.y);
 		
 		this.dy += this.svr.gravity * dtime;
 		
-		var friction = 0;
+		let friction = 0;
 		
 		if (this.dy > 0) {
-			var tsol = 0;
-			var bounce = 0;
+			let tsol = 0;
+			let bounce = 0;
 			
-			for (var i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
-				var blk = DustDataBlocks[this.svr.getBlock(i, iy + this.hcolheight)];
+			for (let i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
+				const blk = DustDataBlocks[this.svr.getBlock(i, iy + this.hcolheight)];
 				if (blk.physics === 'solid') {
 					bounce += blk.bounciness || 0;
 					friction += blk.friction || 1;
@@ -306,11 +310,11 @@ self.DustServerPlayer = function(svr, name) {
 		}
 		
 		if (this.dy < 0) {
-			var tsol = 0;
-			var bounce = 0;
+			let tsol = 0;
+			let bounce = 0;
 			
-			for (var i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
-				var blk = DustDataBlocks[this.svr.getBlock(i, iy - this.hcolheight)];
+			for (let i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
+				const blk = DustDataBlocks[this.svr.getBlock(i, iy - this.hcolheight)];
 				if (blk.physics === 'solid') {
 					bounce += blk.bounciness || 0;
 					tsol++;
@@ -334,19 +338,21 @@ self.DustServerPlayer = function(svr, name) {
 		if (this.online) {
 			this.conn.send({cmd: 'pan', x: ix, y: iy});
 		}
-	};
-};
+	}
+}
 
-self.DustServerGeneratorEntity = function(x, y, svr, gen) {
-	this.x = x;
-	this.y = y;
-	this.svr = svr;
-	this.gen = gen;
-	
-	this.tick = function() {
+class DustServerGeneratorEntity {
+	constructor(x, y, svr, gen) {
+		this.x = x;
+		this.y = y;
+		this.svr = svr;
+		this.gen = gen;
+	}
+
+	tick() {
 		DustServerStructureGenerators[this.gen](this.svr, this.x, this.y);
 		return true;
-	};
+	}
 }
 
 self.DustServerGenerators = {
@@ -355,17 +361,17 @@ self.DustServerGenerators = {
 	},
 	
 	basic: function(chunk) {
-		var f = 1e6, q = 20000;
-		for (var x = 0; x < 128; x++) {
-			var h = 0;
-			var rx = x + 128 * chunk.x;
+		const f = 1e6, q = 3e5;
+		for (let x = 0; x < 128; x++) {
+			let h = 0;
+			const rx = x + 128 * chunk.x;
 			h += (0.5 - chunk.svr.perlin1.noise(rx / (f >> 0), 42, 42)) * (q >> 0);
-			h += (0.5 - chunk.svr.perlin2.noise(rx / (f >> 3), 42, 42)) * (q >> 2);
-			h += (0.5 - chunk.svr.perlin3.noise(rx / (f >> 6), 42, 42)) * (q >> 4);
-			h += (0.5 - chunk.svr.perlin4.noise(rx / (f >> 9), 42, 42)) * (q >> 6);
-			h += (0.5 - chunk.svr.perlin5.noise(rx / (f >>12), 42, 42)) * (q >> 8);
-			for (var y = 0; y < 128; y++) {
-				var ry = y + 128 * chunk.y;
+			h += (0.5 - chunk.svr.perlin2.noise(rx / (f >> 2), 42, 42)) * (q >> 2);
+			h += (0.5 - chunk.svr.perlin3.noise(rx / (f >> 4), 42, 42)) * (q >> 4);
+			h += (0.5 - chunk.svr.perlin4.noise(rx / (f >> 6), 42, 42)) * (q >> 6);
+			h += (0.5 - chunk.svr.perlin5.noise(rx / (f >> 8), 42, 42)) * (q >> 8);
+			for (let y = 0; y < 128; y++) {
+				const ry = y + 128 * chunk.y;
 				
 				chunk.blocks[128 * x + y] = (
 					ry > h
@@ -404,17 +410,19 @@ self.DustServerGenerators = {
 };
 
 self.DustServerStructureGenerators = {
-	gracilaria: function(svr, x, y) {
+	gracilaria: function(svr, x, y, d) {
 		if (svr.getBlock(x, y)   !== DustDataBlocks.salt_water.id) return;
 		if (svr.getBlock(x, y-1) !== DustDataBlocks.salt_water.id) return;
+		d = d || 0;
 		svr.setBlock(x, y, DustDataBlocks.gracilaria.id);
-		if (Math.random() < Math.max(y / 200, 0.1)) DustServerStructureGenerators.gracilaria(svr, x-1, y-1);
-		if (Math.random() < Math.max(y / 400, 0.2)) DustServerStructureGenerators.gracilaria(svr, x,   y-1);
-		if (Math.random() < Math.max(y / 200, 0.1)) DustServerStructureGenerators.gracilaria(svr, x+1, y-1);
+		const p = 1 - d * 0.02;
+		if (Math.random() < 0.6 * p) DustServerStructureGenerators.gracilaria(svr, x-1, y-1, 1+d);
+		if (Math.random() < 0.9 * p) DustServerStructureGenerators.gracilaria(svr, x,   y-1, 1+d);
+		if (Math.random() < 0.6 * p) DustServerStructureGenerators.gracilaria(svr, x+1, y-1, 1+d);
 	},
 	
 	bioluminescent_fungi: function(svr, x, y) {
-		var height = 2 + (0|(Math.random() * 7));
+		const height = 2 + (0|(Math.random() * 7));
 		while (height--) {
 			svr.setBlock(x, y--, DustDataBlocks.green_fungal_wall.id);
 		}
