@@ -82,5 +82,5 @@ function lm(mod) {
 	}
 }
 
-lm('lib/alea.js');
-lm('constants.js');
+lm('../lib/alea.js');
+lm('../common/constants.js');

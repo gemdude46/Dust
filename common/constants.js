@@ -54,6 +54,16 @@ self.DustDataBlocks = {
 		physics: 'fluid',
 		density: 0.9
 	},
+
+	coal: {
+		id: 6,
+		color: [8,8,8],
+		render: 'normal',
+		variation: 7,
+		physics: 'solid',
+		bounciness: 0.03,
+		friction: 0.99995
+	},
 	
 	gracilaria: {
 		id: 100,
@@ -74,6 +84,48 @@ self.DustDataBlocks = {
 		color: [255,255,222],
 		render: 'normal',
 		light: 1
+	},
+
+	flower_stem: {
+		id: 103,
+		color: [0,151,16],
+		render: 'normal',
+		variation: 3
+	},
+
+	red_petal: {
+		id: 104,
+		color: [170,12,4],
+		render: 'normal',
+		variation: 5
+	},
+
+	orange_petal: {
+		id: 105,
+		color: [200,100,1],
+		render: 'normal',
+		variation: 5
+	},
+
+	yellow_petal: {
+		id: 106,
+		color: [220,210,2],
+		render: 'normal',
+		variation: 5
+	},
+
+	violet_petal: {
+		id: 107,
+		color: [80,1,160],
+		render: 'normal',
+		variation: 5
+	},
+
+	white_petal: {
+		id: 108,
+		color: [242,240,240],
+		render: 'normal',
+		variation: 2
 	},
 	
 	luciferin: {

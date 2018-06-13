@@ -5,9 +5,9 @@
 		<script src="lib/Canvas++.js"></script>
 		<script src="lib/perlin.js"></script>
 		<script src="lib/alea.js"></script>
-		<script src="constants.js"></script>
-		<script src="client.js"></script>
-		<script src="server.js"></script>
+		<script src="common/constants.js"></script>
+		<script src="client/client.js"></script>
+		<script src="server/server.js"></script>
 		<script>
 			var client, server, conn;
 			
@@ -29,12 +29,12 @@
 				});
 				conn = new DustServerConnection();
 				
-				client.send = function(msg) {
-					setTimeout(function() {conn.onmsg(msg)}, timeout_lag)
+				client.send = msg => {
+					setTimeout(() => conn.onmsg(msg), timeout_lag)
 				};
 				
-				conn.send = function(msg) {
-					setTimeout(function() {client.onmsg(msg)}, timeout_lag);
+				conn.send = msg => {
+					setTimeout(() => client.onmsg(msg), timeout_lag);
 				};
 				
 				server.addConnection(conn);

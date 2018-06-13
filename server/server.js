@@ -1,0 +1,672 @@
+self.DustServerCommands = {
+	getChunk: async function(msg, svr, conn) {
+		const chunk = svr.getChunk(msg.x, msg.y);
+		while (chunk.age < 4) await svr.nextTick();
+		conn.send({cmd: 'haveChunk', x: msg.x, y: msg.y, chunk: svr.getChunk(msg.x, msg.y).blocks.slice()});
+	},
+	chat: function(msg, svr, conn) {
+		if (msg.text.startsWith('/')) {
+			var res = svr.runCommand(msg.text.split(' ').filter(x => !!x), conn.player);
+			conn.send({cmd: 'message', text: res, color: res.startsWith('[EE]') ? 'red' : 'gray'});
+		} else {
+			svr.players.forEach(function(plr) {
+				if (plr.online) plr.conn.send({cmd: 'message', text: '<' + conn.player.username + '> ' + msg.text});
+			});
+		}
+	},
+	updateKey: function(msg, svr, conn) {
+		conn.player.keys[msg.key] = msg.down;
+	}
+};
+
+class DustServer {
+	
+	constructor(properties) {
+		properties = properties || {};
+	
+		this.name = properties.name || "Dust Server";
+
+		this.seed = properties.seed || Math.random() + ';' + Math.random();
+		
+		this.worldGenerator = new DustServerGenerators[properties.generator](this.seed);
+
+		this.gravity = properties.gravity || 275;
+
+		this.players = [];
+
+		this.entities = [];
+
+		this.chunks = {};
+
+		this.cmdVars = {};
+
+		this.tickPromises = [];
+
+		for (let i = -8; i < 8; i++) for (let j = -8; j < 8; j++) this.getChunk(i, j);
+		
+		setInterval(() => this.tick(), 10);
+	}
+
+	addConnection(conn) {
+		const svr = this;
+		conn.onmsg = function(msg) {
+			if (msg.cmd !== 'haveData') {
+				this.disconnect('Unable to perform handshake: You have no hands.');
+				return;
+			}
+			var player = new DustServerPlayer(svr, msg.playerName);
+			svr.players.push(player);
+			svr.entities.push(player);
+			this.player = player;
+			player.connect(this);
+			this.send({cmd: 'loadWorld'});
+			
+			this.onmsg = function(msg) {
+				DustServerCommands[msg.cmd](msg, svr, this);
+			};
+		}
+		
+		conn.send({cmd: 'handshake', serverName: this.name});
+	}
+
+	getPlayer(name) {
+		for (const plr of this.players) {
+			if (plr.username === name) {
+				return plr;
+			}
+		}
+
+		return null;
+	}
+	
+	getChunk(x, y) {
+		const key = x + ',' + y;
+		return this.chunks[key] || (this.chunks[key] = new DustServerChunk(this, x, y, this.worldGenerator));
+	}
+	
+	getBlock(x, y) {
+		return this.getChunk(Math.floor(x / 128), Math.floor(y / 128)).blocks[(y & 127) + 128 * (x & 127)];
+	}
+	
+	setBlock(x, y, blk) {
+		const chunk = this.getChunk(Math.floor(x / 128), Math.floor(y / 128));
+		const blocki = (y & 127) + 128 * (x & 127);
+		chunk.blocks[blocki] = blk;
+		for (const plr of this.players) {
+			if (plr.online) plr.conn.send({cmd: 'setBlock', chx: chunk.x, chy: chunk.y, ind: blocki, blk: blk});
+		}
+	}
+
+	nextTick() {
+		return new Promise(resolve => this.tickPromises.push(resolve));
+	}
+	
+	tick() {
+		for (let i = this.entities.length - 1; i > -1; i--) {
+			if (this.entities[i].tick(0.01)) {
+				this.entities.splice(i, 1);
+			}
+		}
+
+		for (const chunk_pos in this.chunks) {
+			const chunk = this.chunks[chunk_pos];
+			chunk.tick();
+		}
+
+		for (const promise of this.tickPromises) {
+			promise();
+		}
+
+		this.tickPromises = [];
+	}
+
+	runCommand(command, user) {
+		const commands = {
+			'/': {
+				args: 1,
+				func: args => {
+					return args[0].run();
+				}
+			},
+			'/noclip': {
+				args: 0,
+				func: args => {
+					if (user) {
+						return (user.noclip = !user.noclip) ? "Noclip enabled." : "Noclip disabled.";
+					} else throw("/noclip: Not beng run as user.");
+				}
+			},
+			'/setblock': {
+				args: 3,
+				func: args => {
+					let x = args[0].run();
+					let y = args[1].run();
+					let b = args[2].run();
+
+					if (isNaN(+x) || (+x) % 1 !== 0) {
+						throw("/setblock: " + x + " is not a valid integer.");
+					}
+
+					if (isNaN(+y) || (+y) % 1 !== 0) {
+						throw("/setblock: " + y + " is not a valid integer.");
+					}
+
+					if (b in DustDataBlocks) {
+						b = DustDataBlocks[b];
+					} else {
+						throw("/setblock: " + b + " is not a valid block");
+					}
+
+					x = +x;
+					y = +y;
+
+					this.setBlock(x, y, b.id);
+
+					return "1 block updated.";
+				}
+			},
+			'/tpc': {
+				args: 3,
+				func: args => {
+					let p = args[0].run().split(',');
+					let x = args[1].run();
+					let y = args[2].run();
+
+					if (isNaN(+x)) {
+						throw("/tpc: " + x + " is not a valid number.");
+					}
+
+					if (isNaN(+y)) {
+						throw("/tpc: " + y + " is not a valid number.");
+					}
+
+					x = +x;
+					y = +y;
+
+					p = p.map(x => {
+						const plr = this.getPlayer(x);
+						if (!plr) {
+							throw("/tpc: " + x + " is not a valid player.");
+						}
+						return plr;
+					});
+
+					for (const plr of p) {
+						plr.x = x;
+						plr.y = y;
+					}
+
+					return p.length + " player(s) moved."
+				}
+			},
+			'/whoami': {
+				args: 0,
+				func: args => {
+					if (user) {
+						return user.username;
+					} else throw("/whoami: Not being run as user.");
+				}
+			}
+		}
+
+		let next;
+		next = () => {
+			
+			const me = this;
+
+			if (command.length === 0) {
+				throw("Not enough arguments passed to command.");
+			}
+
+			const cmd = command.splice(0, 1)[0];
+
+			if (cmd.startsWith('/')) {
+				if (cmd in commands) {
+					let args = [];
+					for (var i = 0; i < commands[cmd].args; i++) {
+						args.push(next());
+					}
+
+					return {a: args, f: commands[cmd].func, run: function() {return this.f(this.a);}};
+				} else throw(cmd + " is not a valid command.");
+			} else if (cmd.startsWith('$')) {
+				if (cmd.endsWith('=')) {
+					return {run: function() {return me.cmdVars[cmd.substring(0, cmd.length-1)] = this.a.run()}, a: next()};
+				} else {
+					return {run: () => me.cmdVars[cmd] || ''};
+				}
+			} else {
+				return {run: () => cmd};
+			}
+		}
+		
+		try {
+			const root = next();
+			if (command.length) {
+				throw("Too many arguments passed to command");
+			}
+
+			return '[II] ' + root.run();
+		} catch (e) {
+			return '[EE] ' + e;
+		}
+	}	
+}
+
+class DustServerChunk {
+	constructor(svr, x, y, genf) {
+		this.svr = svr;
+	
+		this.age = 0;
+
+		this.x = x;
+		this.y = y;
+	
+		this.blocks = Array(16384).fill(DustDataBlocks.ERROR.id);
+	
+		if (genf) genf.generateChunk(this);
+	}
+
+	tick() {
+		this.age++;
+	}
+}
+
+class DustServerConnection {
+	constructor() {
+		this.toBeDeleted = false;
+		this.player = null;
+	}
+	
+	disconnect(rs) {
+		this.send({cmd: 'disconnect', reason: rs});
+		this.toBeDeleted = true;
+		this.player.online = false;
+	}
+}
+
+class DustServerPlayer {
+	constructor(svr, name) {
+		this.username = name;
+		this.online = false;
+		this.conn = null;
+		this.svr = svr;
+		this.keys = {
+			left: false,
+			right: false,
+			up: false,
+			down: false,
+			jump: false,
+			run: false
+		};
+
+		this.x = 0;
+		this.y = -30;
+		this.dx = 0;
+		this.dy = 0;
+		this.hcolwidth = 3;
+		this.hcolheight = 7;
+
+		this.jumppwr = 100;
+
+		this.noclip = false;
+	}
+
+	connect(conn) {
+		this.online = true;
+		this.conn = conn;
+	}
+		
+	tick(dtime) {
+
+		const ix = Math.floor(this.x);
+		const iy = Math.floor(this.y);
+		
+		if (this.noclip) {
+			this.x += dtime * (this.keys.left * -50 + this.keys.right * 50) * (1 + this.keys.run);
+			this.y += dtime * (this.keys.up   * -50 + this.keys.down  * 50) * (1 + this.keys.run);
+		} else {
+			const dxofs = (this.keys.left * -30 + this.keys.right * 30) * (1 + this.keys.run);	
+			
+			this.dy += this.svr.gravity * dtime;
+			
+			let friction = 0;
+			
+			if (this.dy > 0) {
+				let tsol = 0;
+				let bounce = 0;
+				
+				for (let i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
+					const blk = DustDataBlocks[this.svr.getBlock(i, iy + this.hcolheight)];
+					if (blk.physics === 'solid') {
+						bounce += blk.bounciness || 0;
+						friction += blk.friction || 1;
+						tsol++;
+					}
+				}
+				
+				if (tsol) {
+					this.dy *= bounce /- tsol;
+					if (Math.abs(this.dy) < 1) this.dy = 0;
+					
+					if (this.keys.jump) this.dy -= this.jumppwr;
+					
+					friction /= tsol;
+				}
+			}
+			
+			if (this.dy < 0) {
+				let tsol = 0;
+				let bounce = 0;
+				
+				for (let i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
+					const blk = DustDataBlocks[this.svr.getBlock(i, iy - this.hcolheight)];
+					if (blk.physics === 'solid') {
+						bounce += blk.bounciness || 0;
+						tsol++;
+					}
+				}
+				
+				if (tsol) {
+					this.dy *= bounce /- tsol;
+				}
+			}
+			
+			if (friction > 1) friction = 1;
+			
+			if (friction < 0.7) friction = 0.7;
+
+			this.dx = (this.dx - dxofs) * Math.pow(1 - friction, dtime) + dxofs;
+			
+			this.x += this.dx * dtime;
+			this.y += this.dy * dtime;
+		}
+
+		if (this.online) {
+			this.conn.send({cmd: 'pan', x: ix, y: iy});
+		}
+	}
+}
+
+class DustServerGeneratorEntity {
+	constructor(x, y, svr, gen) {
+		this.x = x;
+		this.y = y;
+		this.svr = svr;
+		this.gen = gen;
+	}
+
+	tick() {
+		DustServerStructureGenerators[this.gen](this.svr, this.x, this.y);
+		return true;
+	}
+}
+
+class DustServerWorldGenerator {
+	constructor(seed) {
+		if (this.constructor === DustServerWorldGenerator)
+			throw new TypeError('Illegal constructor');
+
+		this.seed = seed;
+	}
+
+	// required: generateChunk(DustServerChunk chunk)
+}
+
+class DustServerWorldGeneratorFlat0 extends DustServerWorldGenerator {
+	generateChunk(chunk) {
+		chunk.blocks.fill( chunk.y < 0 ? DustDataBlocks.air.id : DustDataBlocks.silicate_rock.id );
+	}
+}
+
+class DustServerWorldGeneratorBasic extends DustServerWorldGenerator {
+	constructor(seed) {
+		super(seed);
+
+		this.perlins = {};
+
+		this.structureCache = {};
+	}
+	
+	generateChunk(chunk) {
+		for (let x = 0; x < 128; x++) {
+			const rx = x + 128 * chunk.x;
+			const d = this.x2depth(rx);
+			for (let y = 0; y < 128; y++) {
+				const ry = y + 128 * chunk.y;
+				
+				chunk.blocks[128 * x + y] = (
+					ry > d
+					? (
+						ry > d + 4
+						? (
+							ry > d + 96
+							? this.oreAt(rx, ry)
+							: DustDataBlocks.dirt.id
+						)
+						: (
+							d > -32
+							? DustDataBlocks.silica_sand.id
+							: DustDataBlocks.grass.id
+						)
+					)
+					: (
+						ry > 0
+						? DustDataBlocks.salt_water.id
+						: DustDataBlocks.air.id
+					)
+				);
+			}
+		}
+
+		for (let i = -1; i < 2; i++) {
+			for (let j = -1; j < 2; j++) {
+				for (const structure of this.getStructuresForChunk(i + chunk.x, j + chunk.y)) {
+					const rootx = structure.root[0];
+					const rooty = structure.root[1];
+					
+					for (let b = 0; b < structure.content.length; b += 3) {
+						const bx = rootx + structure.content[b] - chunk.x * 128;
+						const by = rooty + structure.content[1+b] - chunk.y * 128;
+						const block = structure.content[2+b];
+						if (bx >= 0 && bx < 128 && by >= 0 && by < 128) {
+							chunk.blocks[128 * bx + by] = block;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	perlin(id) {
+		id = ''+id;
+		return (id in this.perlins) ? this.perlins[id] : (this.perlins[id] = new Perlin(id + this.seed));
+	}	
+	
+	x2depth(x) {
+		const f = 1e6, q = 3e5;
+		let d = 0;
+		d += (0.5 - this.perlin(1).noise(x / (f >> 0), 42, 42)) * (q >> 0);
+		d += (0.5 - this.perlin(2).noise(x / (f >> 2), 42, 42)) * (q >> 2);
+		d += (0.5 - this.perlin(3).noise(x / (f >> 4), 42, 42)) * (q >> 4);
+		d += (0.5 - this.perlin(4).noise(x / (f >> 6), 42, 42)) * (q >> 6);
+		d += (0.5 - this.perlin(5).noise(x / (f >> 8), 42, 42)) * (q >> 8);
+		return 0|d;
+	}
+
+	x2grad(x) {
+		return (this.x2depth(x+6) - this.x2depth(x-6)) / 12;
+	}
+
+	oreAt(x, y) {
+		return this.perlin('coal').noise(x / 90, y / 50, 42) > 0.8 ? DustDataBlocks.coal.id : DustDataBlocks.silicate_rock.id;
+	}
+
+	getStructuresForChunk(x, y) {
+		const key = `${x},${y}`;
+		if (key in this.structureCache) return this.structureCache[key];
+		else return this.structureCache[key] = this.getStructuresForChunk_(x, y);
+	}
+
+	getStructuresForChunk_(x, y) {
+		let structures = [];
+
+		for (let i = 0; i < 128; i++) {
+			const rx = i + 128 * x;
+			const depth = this.x2depth(rx);
+			if (depth >= y * 128 && depth < (1 + y) * 128) {
+				// This is the surface.
+				const grad = this.x2grad(rx);
+				if (depth < -32) {
+					// Grass.
+					if (Math.random() > 0.98 && Math.abs(grad) < 0.5) {
+						structures.push(this.generateStructureLargeFlower(rx, depth));
+					} else if (Math.random() > 0.9 && Math.abs(grad) < 1.2) {
+						structures.push(this.generateStructureSmallFlower(rx, depth));
+					}
+				} else if (depth < 0) {
+					// Beach.
+				} else {
+					// Ocean.
+					if (depth > 12 && depth < 350 && Math.random() > 0.994) {
+						structures.push(this.generateStructureGracilaria(rx, depth));
+					}
+				}
+			}
+		}
+
+		return structures;
+	}
+
+	generateStructureSmallFlower(x, y) {
+		const petal = [DustDataBlocks.red_petal.id,
+        			   DustDataBlocks.orange_petal.id,
+        			   DustDataBlocks.yellow_petal.id,
+        			   DustDataBlocks.violet_petal.id,
+        			   DustDataBlocks.white_petal.id] [0|(Math.random() * 5)];
+
+		let content = [0, 0, DustDataBlocks.flower_stem.id, 0, -1, DustDataBlocks.flower_stem.id, 0, -2, petal];
+
+		if (Math.random() > 0.9) {
+			content[8] = DustDataBlocks.flower_stem.id;
+			content.push(0);
+			content.push(-3);
+			content.push(petal);
+		}
+
+		return {
+			root: [x, y],
+			content: content
+		};
+	}
+
+	generateStructureLargeFlower(x, y) {
+		const petal = [DustDataBlocks.red_petal.id,
+        			   DustDataBlocks.orange_petal.id,
+        			   DustDataBlocks.violet_petal.id,
+        			   DustDataBlocks.white_petal.id] [0|(Math.random() * 4)];
+		
+		let content = [];
+
+		const h1 = 4 + (0|(Math.random() * 3));
+		const h2 = 3 + (0|(Math.random() * (h1 - 3)));
+		const sway = Math.random() > 0.5 ? -1 : 1;
+
+		for (let i = 0; i < h1; i++) {
+			content.push(0);
+			content.push(-i);
+			content.push(DustDataBlocks.flower_stem.id);
+		}
+
+		for (let i = 0; i < h2; i++) {
+			content.push(sway);
+			content.push(-h1-i);
+			content.push(DustDataBlocks.flower_stem.id);
+		}
+
+		content.push(sway);
+		content.push(-h1-h2-1);
+		content.push(DustDataBlocks.yellow_petal.id);
+		content.push(sway);
+		content.push(-h1-h2);
+		content.push(petal);
+		content.push(sway);
+		content.push(-h1-h2-2);
+		content.push(petal);
+		content.push(sway-1);
+		content.push(-h1-h2);
+		content.push(petal);
+		content.push(sway-1);
+		content.push(-h1-h2-1);
+		content.push(petal);
+		content.push(sway-1);
+		content.push(-h1-h2-2);
+		content.push(petal);
+		content.push(sway+1);
+		content.push(-h1-h2);
+		content.push(petal);
+		content.push(sway+1);
+		content.push(-h1-h2-1);
+		content.push(petal);
+		content.push(sway+1);
+		content.push(-h1-h2-2);
+		content.push(petal);
+
+		return {
+			root: [x, y],
+			content: content
+		};
+	}
+
+	generateStructureGracilaria(x, y) {
+		let content = [];
+
+		let sources = [[0, 0]];
+		let new_sources = [];
+
+		let rd = 0;
+
+		while (sources.length) {
+			if (-sources[0][1] > y - 5) break;
+
+			for (const source of sources) {
+				content.push(source[0]);
+				content.push(source[1]);
+				content.push(DustDataBlocks.gracilaria.id);
+
+				const p = 1 - 0.02 * rd;
+
+				if (Math.random() < 0.3 * p) new_sources.push([source[0], source[1] - 1]);
+				else {
+					if (Math.random() < 0.7 * p) new_sources.push([source[0] - 1, source[1] - 1]);
+					if (Math.random() < 0.7 * p) new_sources.push([source[0] + 1, source[1] - 1]);
+				}
+			}
+
+			for (let i = new_sources.length - 1; i > 0; i--) {
+				for (let j = 0; j < i; j++) {
+					if (''+new_sources[i] === ''+new_sources[j]) {
+						new_sources.splice(i, 1);
+						break;
+					}
+				}
+			}
+
+			sources = new_sources;
+			new_sources = [];
+
+			rd++;
+		}
+
+		return {
+			root: [x, y],
+			content: content
+		};
+	}
+}
+
+self.DustServerGenerators = {
+	flat0: DustServerWorldGeneratorFlat0,
+	basic: DustServerWorldGeneratorBasic
+};
+

@@ -141,13 +141,16 @@ class DustClient {
 	constructor(cvs) {
 		this.kcmap = {
 			37: 'left',
+			38: 'up',
 			39: 'right',
+			40: 'down',
 			32: 'jump',
 			16: 'run',
-			84: 'chat'
+			84: 'chat',
+			191: 'cmd'
 		};
 	
-		this.displayChunkBoundries = true;
+		this.displayChunkBoundries = false;
 
 		this.bgcolor = [0,255,255];
 	
@@ -192,7 +195,7 @@ class DustClient {
 		});
 		document.body.appendChild(this.chatEl);
 	
-		this.renderWorker = new Worker('chunkRenderWorker.js');
+		this.renderWorker = new Worker('client/chunkRenderWorker.js');
 		this.renderWorker.onmessage = msg => {
 			this.getChunk(msg.data.x, msg.data.y).uds(msg.data.buffer);
 		};
@@ -227,9 +230,16 @@ class DustClient {
 		requestAnimationFrame(drawMe);
 		
 		document.addEventListener('keydown', e => {
+			let pd = true;
 			if (this.kcmap[e.keyCode] === 'chat')
 				setTimeout(() => { this.openChat(); }, 16);
-			else if (e.keyCode in this.kcmap) this.send({cmd: 'updateKey', key: this.kcmap[e.keyCode], down: true});
+			else if (this.kcmap[e.keyCode] === 'cmd')
+				setTimeout(() => { this.openChat(); this.chatEl.value = '/'; }, 16);
+			else if (e.keyCode in this.kcmap)
+				this.send({cmd: 'updateKey', key: this.kcmap[e.keyCode], down: true});
+			else pd = false;
+
+			if (pd) e.preventDefault();
 		});
 		
 		document.addEventListener('keyup', e => {
