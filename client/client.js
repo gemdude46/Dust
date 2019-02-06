@@ -4,7 +4,7 @@ var BLOCKSIZE = 4;
 
 class DustClientChunk {
 
-	constructor(x, y, blocks, client) {
+	constructor(x, y, blocks, bgs, client) {
 		this.isChunkObject = true;
 	
 		this.client = client;
@@ -17,6 +17,7 @@ class DustClientChunk {
 		this.idata = client.sf.ctx.createImageData(128 * BLOCKSIZE, 128 * BLOCKSIZE);
 
 		this.blocks = blocks;
+		this.bgs = bgs;
 		this.lighting = Array(16384).fill(0.1);
 	
 		this.sfdirty = [0,0,128,128];
@@ -80,6 +81,7 @@ class DustClientChunk {
 		this.client.getRenderWorker().postMessage({
 			buffer: buffer,
 			blocks: this.blocks,
+			bgs: this.bgs,
 			lighting: this.lighting,
 			day: this.client.day,
 			i: {
@@ -113,7 +115,7 @@ self.DustClientCommands = {
 	},
 	
 	haveChunk: function(msg, client) {
-		const chunk = new DustClientChunk(msg.x, msg.y, msg.chunk, client);
+		const chunk = new DustClientChunk(msg.x, msg.y, msg.blocks, msg.bgs, client);
 		
 		for (var i = 0; i < client.chunks.length; i++) {
 			if (client.chunks[i].x === msg.x && client.chunks[i].y === msg.y) {
@@ -195,7 +197,8 @@ class DustClient {
 		});
 		document.body.appendChild(this.chatEl);
 	
-		this.renderWorker = new Worker('client/chunkRenderWorker.js');
+		this.renderWorker = new Worker('worker.js');
+		this.renderWorker.postMessage('client/chunkRenderWorker.js');
 		this.renderWorker.onmessage = msg => {
 			this.getChunk(msg.data.x, msg.data.y).uds(msg.data.buffer);
 		};

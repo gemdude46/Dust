@@ -1,8 +1,12 @@
 'use strict';
 
+m_supplies('client/chunkRenderWorker.js');
+m_require('lib/alea.js');
+m_require('common/constants.js');
+
 var BLOCKSIZE;
 
-var blocks, lighting, heights;
+var blocks, bgs, lighting, heights;
 
 var buffer, bufferview;
 
@@ -14,6 +18,7 @@ var cpos;
 
 self.onmessage = function(msg) {
 	blocks = msg.data.blocks;
+	bgs = msg.data.bgs;
 	lighting = msg.data.lighting;
 	buffer = msg.data.buffer;
 	bufferview = new Uint8Array(buffer);
@@ -47,12 +52,27 @@ function render() {
 		for (let j = 0; j < 128; j++) {
 			const rn = rng.int32();
 			const block = self.DustDataBlocks[blocks[j+i*128]];
+			const bg = self.DustDataBgs[bgs[j+i*128]];
 			const depth = j + cpos.y * 128;
-			const light = lighting[j+i*128] + (day ? Math.max(Math.min(1 - depth/256, 1), 0) : 0);
 
 			if (block.render === 'none') {
-				sblkcol(i, j, [0,255,255]);
+				if (bg.render === 'none') {
+					sblkcol(i, j, [0,255,255]);
+				} else if (bg.render === 'normal') {
+					const light = lighting[j+i*128] + (day ? Math.max(Math.min(1 - depth/256, 1), 0) : 0);
+					let clr = bg.color.slice();
+					if (bg.variation) {
+						clr[0] += rn % bg.variation;
+						clr[1] += rn % bg.variation;
+						clr[2] += rn % bg.variation;
+					}
+					clr[0] *= light;
+					clr[1] *= light;
+					clr[2] *= light;
+					sblkcol(i, j, clr.map(x => 0 | (x < 0 ? 0 : x > 255 ? 255 : x)));
+				}
 			} else if (block.render === 'normal' || block.render === 'fluid') {
+				const light = lighting[j+i*128] + (day ? Math.max(Math.min(1 - depth/256, 1), 0) : 0);
 				let clr = block.color.slice();
 				if (block.variation) {
 					clr[0] += rn % block.variation;
@@ -70,17 +90,3 @@ function render() {
 	}
 }
 
-function lm(mod) {
-	const constxhr = new XMLHttpRequest();
-	constxhr.open('GET', mod, false);
-	constxhr.send(null);
-
-	if (constxhr.status === 200) {
-		eval(constxhr.responseText);
-	} else {
-		throw new Error('GET ' + mod + ' returned status ' + constxhr.status);
-	}
-}
-
-lm('../lib/alea.js');
-lm('../common/constants.js');

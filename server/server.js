@@ -1,8 +1,12 @@
+m_supplies('server/server.js');
+m_require('server/generators.js');
+m_require('common/constants.js');
+
 self.DustServerCommands = {
 	getChunk: async function(msg, svr, conn) {
 		const chunk = svr.getChunk(msg.x, msg.y);
 		while (chunk.age < 4) await svr.nextTick();
-		conn.send({cmd: 'haveChunk', x: msg.x, y: msg.y, chunk: svr.getChunk(msg.x, msg.y).blocks.slice()});
+		conn.send({cmd: 'haveChunk', x: msg.x, y: msg.y, blocks: svr.getChunk(msg.x, msg.y).blocks.slice(), bgs: svr.getChunk(msg.x, msg.y).bgs.slice()});
 	},
 	chat: function(msg, svr, conn) {
 		if (msg.text.startsWith('/')) {
@@ -42,7 +46,7 @@ class DustServer {
 
 		this.tickPromises = [];
 
-		for (let i = -8; i < 8; i++) for (let j = -8; j < 8; j++) this.getChunk(i, j);
+		//for (let i = -8; i < 8; i++) for (let j = -8; j < 8; j++) this.getChunk(i, j);
 		
 		setInterval(() => this.tick(), 10);
 	}
@@ -263,7 +267,8 @@ class DustServerChunk {
 		this.y = y;
 	
 		this.blocks = Array(16384).fill(DustDataBlocks.ERROR.id);
-	
+		this.bgs = Array(16384).fill(DustDataBgs.ERROR.id);
+
 		if (genf) genf.generateChunk(this);
 	}
 
@@ -347,7 +352,7 @@ class DustServerPlayer {
 				
 				if (tsol) {
 					this.dy *= bounce /- tsol;
-					if (Math.abs(this.dy) < 1) this.dy = 0;
+					if (Math.abs(this.dy) < 30) this.dy = 0;
 					
 					if (this.keys.jump) this.dy -= this.jumppwr;
 					
@@ -388,285 +393,18 @@ class DustServerPlayer {
 	}
 }
 
-class DustServerGeneratorEntity {
-	constructor(x, y, svr, gen) {
-		this.x = x;
-		this.y = y;
-		this.svr = svr;
-		this.gen = gen;
-	}
 
-	tick() {
-		DustServerStructureGenerators[this.gen](this.svr, this.x, this.y);
-		return true;
-	}
-}
+self.onmessage = function(message) {
+	self.server_object = new DustServer(message.data);
+	self.connection = new DustServerConnection();
 
-class DustServerWorldGenerator {
-	constructor(seed) {
-		if (this.constructor === DustServerWorldGenerator)
-			throw new TypeError('Illegal constructor');
+	self.connection.send = function(message) {
+		self.postMessage(message);
+	};
 
-		this.seed = seed;
-	}
+	self.onmessage = function(message) {
+		self.connection.onmsg(message.data);
+	};
 
-	// required: generateChunk(DustServerChunk chunk)
-}
-
-class DustServerWorldGeneratorFlat0 extends DustServerWorldGenerator {
-	generateChunk(chunk) {
-		chunk.blocks.fill( chunk.y < 0 ? DustDataBlocks.air.id : DustDataBlocks.silicate_rock.id );
-	}
-}
-
-class DustServerWorldGeneratorBasic extends DustServerWorldGenerator {
-	constructor(seed) {
-		super(seed);
-
-		this.perlins = {};
-
-		this.structureCache = {};
-	}
-	
-	generateChunk(chunk) {
-		for (let x = 0; x < 128; x++) {
-			const rx = x + 128 * chunk.x;
-			const d = this.x2depth(rx);
-			for (let y = 0; y < 128; y++) {
-				const ry = y + 128 * chunk.y;
-				
-				chunk.blocks[128 * x + y] = (
-					ry > d
-					? (
-						ry > d + 4
-						? (
-							ry > d + 96
-							? this.oreAt(rx, ry)
-							: DustDataBlocks.dirt.id
-						)
-						: (
-							d > -32
-							? DustDataBlocks.silica_sand.id
-							: DustDataBlocks.grass.id
-						)
-					)
-					: (
-						ry > 0
-						? DustDataBlocks.salt_water.id
-						: DustDataBlocks.air.id
-					)
-				);
-			}
-		}
-
-		for (let i = -1; i < 2; i++) {
-			for (let j = -1; j < 2; j++) {
-				for (const structure of this.getStructuresForChunk(i + chunk.x, j + chunk.y)) {
-					const rootx = structure.root[0];
-					const rooty = structure.root[1];
-					
-					for (let b = 0; b < structure.content.length; b += 3) {
-						const bx = rootx + structure.content[b] - chunk.x * 128;
-						const by = rooty + structure.content[1+b] - chunk.y * 128;
-						const block = structure.content[2+b];
-						if (bx >= 0 && bx < 128 && by >= 0 && by < 128) {
-							chunk.blocks[128 * bx + by] = block;
-						}
-					}
-				}
-			}
-		}
-	}
-
-	perlin(id) {
-		id = ''+id;
-		return (id in this.perlins) ? this.perlins[id] : (this.perlins[id] = new Perlin(id + this.seed));
-	}	
-	
-	x2depth(x) {
-		const f = 1e6, q = 3e5;
-		let d = 0;
-		d += (0.5 - this.perlin(1).noise(x / (f >> 0), 42, 42)) * (q >> 0);
-		d += (0.5 - this.perlin(2).noise(x / (f >> 2), 42, 42)) * (q >> 2);
-		d += (0.5 - this.perlin(3).noise(x / (f >> 4), 42, 42)) * (q >> 4);
-		d += (0.5 - this.perlin(4).noise(x / (f >> 6), 42, 42)) * (q >> 6);
-		d += (0.5 - this.perlin(5).noise(x / (f >> 8), 42, 42)) * (q >> 8);
-		return 0|d;
-	}
-
-	x2grad(x) {
-		return (this.x2depth(x+6) - this.x2depth(x-6)) / 12;
-	}
-
-	oreAt(x, y) {
-		return this.perlin('coal').noise(x / 90, y / 50, 42) > 0.8 ? DustDataBlocks.coal.id : DustDataBlocks.silicate_rock.id;
-	}
-
-	getStructuresForChunk(x, y) {
-		const key = `${x},${y}`;
-		if (key in this.structureCache) return this.structureCache[key];
-		else return this.structureCache[key] = this.getStructuresForChunk_(x, y);
-	}
-
-	getStructuresForChunk_(x, y) {
-		let structures = [];
-
-		for (let i = 0; i < 128; i++) {
-			const rx = i + 128 * x;
-			const depth = this.x2depth(rx);
-			if (depth >= y * 128 && depth < (1 + y) * 128) {
-				// This is the surface.
-				const grad = this.x2grad(rx);
-				if (depth < -32) {
-					// Grass.
-					if (Math.random() > 0.98 && Math.abs(grad) < 0.5) {
-						structures.push(this.generateStructureLargeFlower(rx, depth));
-					} else if (Math.random() > 0.9 && Math.abs(grad) < 1.2) {
-						structures.push(this.generateStructureSmallFlower(rx, depth));
-					}
-				} else if (depth < 0) {
-					// Beach.
-				} else {
-					// Ocean.
-					if (depth > 12 && depth < 350 && Math.random() > 0.994) {
-						structures.push(this.generateStructureGracilaria(rx, depth));
-					}
-				}
-			}
-		}
-
-		return structures;
-	}
-
-	generateStructureSmallFlower(x, y) {
-		const petal = [DustDataBlocks.red_petal.id,
-        			   DustDataBlocks.orange_petal.id,
-        			   DustDataBlocks.yellow_petal.id,
-        			   DustDataBlocks.violet_petal.id,
-        			   DustDataBlocks.white_petal.id] [0|(Math.random() * 5)];
-
-		let content = [0, 0, DustDataBlocks.flower_stem.id, 0, -1, DustDataBlocks.flower_stem.id, 0, -2, petal];
-
-		if (Math.random() > 0.9) {
-			content[8] = DustDataBlocks.flower_stem.id;
-			content.push(0);
-			content.push(-3);
-			content.push(petal);
-		}
-
-		return {
-			root: [x, y],
-			content: content
-		};
-	}
-
-	generateStructureLargeFlower(x, y) {
-		const petal = [DustDataBlocks.red_petal.id,
-        			   DustDataBlocks.orange_petal.id,
-        			   DustDataBlocks.violet_petal.id,
-        			   DustDataBlocks.white_petal.id] [0|(Math.random() * 4)];
-		
-		let content = [];
-
-		const h1 = 4 + (0|(Math.random() * 3));
-		const h2 = 3 + (0|(Math.random() * (h1 - 3)));
-		const sway = Math.random() > 0.5 ? -1 : 1;
-
-		for (let i = 0; i < h1; i++) {
-			content.push(0);
-			content.push(-i);
-			content.push(DustDataBlocks.flower_stem.id);
-		}
-
-		for (let i = 0; i < h2; i++) {
-			content.push(sway);
-			content.push(-h1-i);
-			content.push(DustDataBlocks.flower_stem.id);
-		}
-
-		content.push(sway);
-		content.push(-h1-h2-1);
-		content.push(DustDataBlocks.yellow_petal.id);
-		content.push(sway);
-		content.push(-h1-h2);
-		content.push(petal);
-		content.push(sway);
-		content.push(-h1-h2-2);
-		content.push(petal);
-		content.push(sway-1);
-		content.push(-h1-h2);
-		content.push(petal);
-		content.push(sway-1);
-		content.push(-h1-h2-1);
-		content.push(petal);
-		content.push(sway-1);
-		content.push(-h1-h2-2);
-		content.push(petal);
-		content.push(sway+1);
-		content.push(-h1-h2);
-		content.push(petal);
-		content.push(sway+1);
-		content.push(-h1-h2-1);
-		content.push(petal);
-		content.push(sway+1);
-		content.push(-h1-h2-2);
-		content.push(petal);
-
-		return {
-			root: [x, y],
-			content: content
-		};
-	}
-
-	generateStructureGracilaria(x, y) {
-		let content = [];
-
-		let sources = [[0, 0]];
-		let new_sources = [];
-
-		let rd = 0;
-
-		while (sources.length) {
-			if (-sources[0][1] > y - 5) break;
-
-			for (const source of sources) {
-				content.push(source[0]);
-				content.push(source[1]);
-				content.push(DustDataBlocks.gracilaria.id);
-
-				const p = 1 - 0.02 * rd;
-
-				if (Math.random() < 0.3 * p) new_sources.push([source[0], source[1] - 1]);
-				else {
-					if (Math.random() < 0.7 * p) new_sources.push([source[0] - 1, source[1] - 1]);
-					if (Math.random() < 0.7 * p) new_sources.push([source[0] + 1, source[1] - 1]);
-				}
-			}
-
-			for (let i = new_sources.length - 1; i > 0; i--) {
-				for (let j = 0; j < i; j++) {
-					if (''+new_sources[i] === ''+new_sources[j]) {
-						new_sources.splice(i, 1);
-						break;
-					}
-				}
-			}
-
-			sources = new_sources;
-			new_sources = [];
-
-			rd++;
-		}
-
-		return {
-			root: [x, y],
-			content: content
-		};
-	}
-}
-
-self.DustServerGenerators = {
-	flat0: DustServerWorldGeneratorFlat0,
-	basic: DustServerWorldGeneratorBasic
+	self.server_object.addConnection(self.connection);
 };
-

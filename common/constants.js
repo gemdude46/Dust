@@ -1,6 +1,8 @@
+m_supplies('common/constants.js');
+
 self.DustDataBlocks = {
 	
-	air: {
+	void: {
 		id: 0,
 		render: 'none',
 		physics: 'fluid',
@@ -64,6 +66,32 @@ self.DustDataBlocks = {
 		bounciness: 0.03,
 		friction: 0.99995
 	},
+
+	tree_root: {
+		id: 7,
+		color: [64,56,49],
+		render: 'normal',
+		variation: 13,
+		physics: 'solid',
+		bounciness: 0.1,
+		friction: 1
+	},
+
+	pine_wood: {
+		id: 8,
+		color: [65,40,40],
+		render: 'normal',
+		variation: 15
+	},
+
+	pine_leaf: {
+		id: 9,
+		color: [44,54,39],
+		render: 'normal',
+		variation: 12
+	},
+
+	////////////////////////////////////////////////////////////////
 	
 	gracilaria: {
 		id: 100,
@@ -127,6 +155,15 @@ self.DustDataBlocks = {
 		render: 'normal',
 		variation: 2
 	},
+
+	surfgrass: {
+		id: 109,
+		color: [12,90,0],
+		render: 'normal',
+		variation: 8
+	},
+
+	////////////////////////////////////////////////////////////////
 	
 	luciferin: {
 		id: 1000,
@@ -134,7 +171,32 @@ self.DustDataBlocks = {
 		render: 'normal',
 		light: 0.025
 	},
+
+	////////////////////////////////////////////////////////////////
 	
+	ERROR: {
+		id: 65535,
+		color: [150,0,150],
+		render: 'normal'
+	}
+};
+
+self.DustDataBgs = {
+
+	void: {
+		id: 0,
+		render: 'none'
+	},
+
+	rock: {
+		id: 1,
+		color: [90, 90, 90],
+		variation: 5,
+		render: 'normal'
+	},
+
+	////////////////////////////////////////////////////////////////
+
 	ERROR: {
 		id: 65535,
 		color: [150,0,150],
@@ -149,5 +211,12 @@ self.DustDataBlocks = {
 	}
 	for (var i = 0; i < blocks.length; i++) {
 		DustDataBlocks[blocks[i].id] = blocks[i];
+	}
+	var bgs = [];
+	for (var bg in DustDataBgs) {
+		bgs.push(DustDataBgs[bg]);
+	}
+	for (var bg of bgs) {
+		DustDataBgs[bg.id]=bg
 	}
 }();

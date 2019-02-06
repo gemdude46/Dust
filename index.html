@@ -2,16 +2,13 @@
 <html>
 	<head>
 		<title>Dust 0.1.0 (Pre-alpha)</title>
+		<script src="common/dummy_worker.js"></script>
 		<script src="lib/Canvas++.js"></script>
-		<script src="lib/perlin.js"></script>
-		<script src="lib/alea.js"></script>
 		<script src="common/constants.js"></script>
 		<script src="client/client.js"></script>
-		<script src="server/server.js"></script>
 		<script>
-			var client, server, conn;
-			
-			var timeout_lag = 1;
+			var client;
+			var server_worker;
 			
 			onload = function() {
 				
@@ -23,22 +20,22 @@
 				document.body.appendChild(canvas);
 				
 				client = new DustClient(canvas);
-				server = new DustServer({
+
+				server_worker = new Worker('worker.js');
+				server_worker.postMessage('server/server.js');
+				
+				server_worker.postMessage({
 					name: 'Singleplayer local server',
 					generator: 'basic'
 				});
-				conn = new DustServerConnection();
-				
-				client.send = msg => {
-					setTimeout(() => conn.onmsg(msg), timeout_lag)
+
+				client.send = function(message) {
+					server_worker.postMessage(message);
 				};
-				
-				conn.send = msg => {
-					setTimeout(() => client.onmsg(msg), timeout_lag);
+
+				server_worker.onmessage = function(message) {
+					client.onmsg(message.data);
 				};
-				
-				server.addConnection(conn);
-				
 			};
 		</script>
 		<style>
