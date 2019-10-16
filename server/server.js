@@ -1,5 +1,5 @@
 m_supplies('server/server.js');
-m_require('server/generators.js');
+//m_require('server/generators.js');
 m_require('common/constants.js');
 
 self.DustServerCommands = {
@@ -32,7 +32,14 @@ class DustServer {
 
 		this.seed = properties.seed || Math.random() + ';' + Math.random();
 		
-		this.worldGenerator = new DustServerGenerators[properties.generator](this.seed);
+		this.gen_listeners = {};
+		this.generation_worker = new Worker('worker.js');
+		this.generation_worker.postMessage('server/generationWorker.js');
+		this.generation_worker.postMessage(`new DustServerGenerators[${ JSON.stringify(properties.generator) }](${ JSON.stringify(this.seed) })`);
+		this.generation_worker.onmessage =msg => {
+			this.gen_listeners[msg.data.key](msg.data.value);
+			delete this.gen_listeners[msg.data.key];
+		};
 
 		this.gravity = properties.gravity || 275;
 
@@ -85,7 +92,11 @@ class DustServer {
 	
 	async getChunkGen(x, y) {
 		const key = x + ',' + y;
-		return this.chunks[key] || (this.chunks[key] = new DustServerChunk(this, x, y, this.worldGenerator));
+		
+		if (this.chunks[key]) return this.chunks[key];
+
+		this.generation_worker.postMessage([x,y,key]);
+		return this.chunks[key] = new DustServerChunk(this, x, y, await new Promise((resolve, reject) => (this.gen_listeners[key] = resolve)));
 	}
 
 	getChunk(x, y) {
@@ -275,10 +286,15 @@ class DustServerChunk {
 		this.x = x;
 		this.y = y;
 	
-		this.blocks = Array(16384).fill(DustDataBlocks.ERROR.id);
-		this.bgs = Array(16384).fill(DustDataBgs.ERROR.id);
+		if (genf.fill) {
+			this.blocks = genf[0];
+			this.bgs = genf[1];
+		} else {
+			this.blocks = Array(16384).fill(DustDataBlocks.ERROR.id);
+			this.bgs = Array(16384).fill(DustDataBgs.ERROR.id);
 
-		if (genf) genf.generateChunk(this);
+			if (genf) genf.generateChunk(this);
+		}
 	}
 
 	tick() {
@@ -315,7 +331,7 @@ class DustServerPlayer {
 		};
 
 		this.x = 0;
-		this.y = -30;
+		this.y = -150;
 		this.dx = 0;
 		this.dy = 0;
 		this.hcolwidth = 3;
