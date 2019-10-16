@@ -49,28 +49,46 @@ class DustServerWorldGeneratorFlat0 extends DustServerWorldGenerator {
 const DustServerWorldGeneratorBasicStructureFrequencyData = {
 	ocean: [
 		{
-			n: 'Gracilaria',
-			f: (depth, grad, temp, _) => depth > 8 && depth < 200 && Math.abs(grad) < 0.6 ? 0.005 : 0
+			name: 'Gracilaria',
+			//f: (depth, grad, temp, _) => depth > 8 && depth < 200 && Math.abs(grad) < 0.6 ? 0.005 : 0
+			minDepth: 8,
+			maxDepth: 200,
+			minTemp: -Infinity,
+			maxTemp: Infinity,
+			maxGrad: 0.6,
+			rate: 0.005,
 		},
 		{
-			n: 'Surfgrass',
-			f: (depth, grad, _, __) => depth > 5 && depth < 150 && Math.abs(grad) < 0.2 ? 0.4 : 0
+			name: 'Surfgrass',
+			//f: (depth, grad, _, __) => depth > 5 && depth < 150 && Math.abs(grad) < 0.2 ? 0.4 : 0
+			minDepth: 5,
+			maxDepth: 180,
+			minTemp: -Infinity,
+			maxTemp: Infinity,
+			maxGrad: 0.2,
+			rate: 0.4
 		}
 	],
 	beach: [],
 	land: [
 		{
-			n: 'PineTree',
-			f: (_, grad, temp, humidity) => (temp > -2 && temp < 30 && Math.abs(grad) < 0.8) ? 0.03 : 0
-		},
+			name: 'PineTree',
+			forest: true,
+			//f: (_, grad, temp, humidity) => (temp > -2 && temp < 30 && Math.abs(grad) < 0.8) ? 0.03 : 0
+			minDepth: -Infinity,
+			maxDepth: -32,
+			maxGrad: 0.3,
+			rate: 0.01
+		}/*,
 		{
 			n: 'LargeFlower',
+			g: 'flower',
 			f: (_, grad, temp, humidity) => Math.abs(grad) < 0.5 ? 0.02 : 0
 		},
 		{
 			n: 'SmallFlower',
 			f: (_, grad, temp, humidity) => Math.abs(grad) < 1.3 ? 0.1 : 0
-		}
+		}*/
 	]
 };
 
@@ -81,6 +99,51 @@ class DustServerWorldGeneratorBasic extends DustServerWorldGenerator {
 		this.perlins = {};
 
 		this.structureCache = {};
+
+		this.forests = [];
+	}
+
+	forestAt(x) {
+		const gx = x >> 10;
+		
+		if (this.forests[gx]) {
+			return this.forests[gx][x & 1023];
+		}
+
+		this.forests[gx] = new Array(1024);
+		this.forests[gx].fill(null);
+
+		let forestTypes = [];
+
+		for (const st of ['land', 'beach', 'ocean']) {
+			for (const structure of DustServerWorldGeneratorBasicStructureFrequencyData[st]) {
+				if (structure.forest) {
+					forestTypes.push(structure.name);
+				}
+			}
+		}
+
+		for (let i = 0; i < 7; i++) {
+			const size = 16 + (0|(Math.random() * 64));
+			const type = forestTypes[0|(Math.random() * forestTypes.length)];
+			const start = 0|(Math.random() * 1024);
+
+			for (let j = 0; j < size; j++) {
+				if (start + j >= 1024) break;
+				if (this.forests[gx][start + j] !== null) break;
+				this.forests[gx][start + j] = type;
+			}
+
+			for (let j = 0; j < size; j++) {
+				if (start - j <= 0) break;
+				if (this.forests[gx][start - j - 1] !== null) break;
+				this.forests[gx][start - j - 1] = type;
+			}
+		}
+
+		console.log(gx, this.forests[gx]);
+
+		return this.forests[gx][x & 1023];
 	}
 	
 	generateChunk(chunk) {
@@ -181,7 +244,8 @@ class DustServerWorldGeneratorBasic extends DustServerWorldGenerator {
 			if (depth >= y * 128 && depth < (1 + y) * 128) {
 				// This is the surface.
 				const grad = this.x2grad(rx);
-				if (depth < -32) {
+				
+				/*if (depth < -32) {
 					// Land.
 					for (const str of DustServerWorldGeneratorBasicStructureFrequencyData.land) {
 						if (Math.random() < str.f(depth, grad, 1, 1)) {
@@ -205,6 +269,15 @@ class DustServerWorldGeneratorBasic extends DustServerWorldGenerator {
 							 break;
 						}
 					} 
+				}*/
+
+				const frequency_data = DustServerWorldGeneratorBasicStructureFrequencyData[depth < -32 ? 'land' : depth < 0 ? 'beach' : 'ocean'];
+
+				for (const structure of frequency_data) {
+					if (structure.minDepth <= depth && structure.maxDepth >= depth && structure.maxGrad >= Math.abs(grad) && (!structure.forest || this.forestAt(x) === structure.name) && Math.random() < structure.rate) {
+						structures.push(this['generateStructure' + structure.name](rx, depth));
+						break;
+					}
 				}
 			}
 		}

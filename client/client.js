@@ -147,7 +147,7 @@ class DustClient {
 			39: 'right',
 			40: 'down',
 			32: 'jump',
-			16: 'run',
+			90: 'run',
 			84: 'chat',
 			191: 'cmd'
 		};
@@ -234,6 +234,7 @@ class DustClient {
 		
 		document.addEventListener('keydown', e => {
 			let pd = true;
+			//console.log(e.keyCode);
 			if (this.kcmap[e.keyCode] === 'chat')
 				setTimeout(() => { this.openChat(); }, 16);
 			else if (this.kcmap[e.keyCode] === 'cmd')

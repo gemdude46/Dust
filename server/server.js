@@ -4,9 +4,9 @@ m_require('common/constants.js');
 
 self.DustServerCommands = {
 	getChunk: async function(msg, svr, conn) {
-		const chunk = svr.getChunk(msg.x, msg.y);
+		const chunk = await svr.getChunkGen(msg.x, msg.y);
 		while (chunk.age < 4) await svr.nextTick();
-		conn.send({cmd: 'haveChunk', x: msg.x, y: msg.y, blocks: svr.getChunk(msg.x, msg.y).blocks.slice(), bgs: svr.getChunk(msg.x, msg.y).bgs.slice()});
+		conn.send({cmd: 'haveChunk', x: msg.x, y: msg.y, blocks: chunk.blocks.slice(), bgs: chunk.bgs.slice()});
 	},
 	chat: function(msg, svr, conn) {
 		if (msg.text.startsWith('/')) {
@@ -83,13 +83,22 @@ class DustServer {
 		return null;
 	}
 	
-	getChunk(x, y) {
+	async getChunkGen(x, y) {
 		const key = x + ',' + y;
 		return this.chunks[key] || (this.chunks[key] = new DustServerChunk(this, x, y, this.worldGenerator));
 	}
+
+	getChunk(x, y) {
+		return this.chunks[x + ',' + y];
+	}
 	
 	getBlock(x, y) {
-		return this.getChunk(Math.floor(x / 128), Math.floor(y / 128)).blocks[(y & 127) + 128 * (x & 127)];
+		const chunk = this.getChunk(Math.floor(x / 128), Math.floor(y / 128));
+		if (chunk) {
+			return this.getChunk(Math.floor(x / 128), Math.floor(y / 128)).blocks[(y & 127) + 128 * (x & 127)];
+		} else {
+			return 65535;
+		}
 	}
 	
 	setBlock(x, y, blk) {
@@ -383,6 +392,54 @@ class DustServerPlayer {
 
 			this.dx = (this.dx - dxofs) * Math.pow(1 - friction, dtime) + dxofs;
 			
+			if (this.dx > 0) {
+				for (let i = iy - this.hcolheight; i < iy + this.hcolheight - 1; i++) {
+					const blk = DustDataBlocks[this.svr.getBlock(ix + this.hcolwidth, i)];
+					if (blk.physics === 'solid') {
+						this.dx = 0;
+						break;
+					}
+				}
+
+				if (this.dx > 0 && DustDataBlocks[this.svr.getBlock(ix + this.hcolwidth, iy + this.hcolheight - 1)].physics === 'solid') {
+					for (let i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
+						const blk = DustDataBlocks[this.svr.getBlock(i, iy - this.hcolheight)];
+						if (blk.physics === 'solid') {
+							this.dx = 0;
+							break;
+						}
+					}
+
+					if (this.dx > 0) {
+						this.y -= 1;
+					}
+				}
+			}
+
+			else if (this.dx < 0) {
+				for (let i = iy - this.hcolheight; i < iy + this.hcolheight - 1; i++) {
+					const blk = DustDataBlocks[this.svr.getBlock(ix - this.hcolwidth - 1, i)];
+					if (blk.physics === 'solid') {
+						this.dx = 0;
+						break;
+					}
+				}
+				
+				if (this.dx < 0 && DustDataBlocks[this.svr.getBlock(ix - this.hcolwidth - 1, iy + this.hcolheight - 1)].physics === 'solid') {
+					for (let i = ix - this.hcolwidth; i <= ix + this.hcolwidth; i++) {
+						const blk = DustDataBlocks[this.svr.getBlock(i, iy - this.hcolheight)];
+						if (blk.physics === 'solid') {
+							this.dx = 0;
+							break;
+						}
+					}
+
+					if (this.dx < 0) {
+						this.y -= 1;
+					}
+				}
+			}
+
 			this.x += this.dx * dtime;
 			this.y += this.dy * dtime;
 		}
